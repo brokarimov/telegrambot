@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\OrderStatusEvent;
 use App\Mail\SendVerifyCode;
 use App\Models\Food;
 use App\Models\Order;
@@ -44,7 +45,7 @@ class TelegramBotController extends Controller
     {
         try {
             $data = $request->all();
-            Log::info('Telegram Webhook Received: ', $data);
+            // Log::info('Telegram Webhook Received: ', $data);
 
             if (isset($data['callback_query'])) {
                 return $this->handleCallbackQuery($data['callback_query']);
@@ -117,15 +118,40 @@ class TelegramBotController extends Controller
 
             $this->store("User ID {$userId} has been unconfirmed ❌", $chat_id, null);
         } elseif (str_starts_with($callbackData, 'confirmorder_')) {
+
             $orderId = str_replace('confirmorder_', '', $callbackData);
             Order::where('id', $orderId)->update(['status' => 1]);
+            $order = Order::where('id', $orderId)->first();
+            $data = [
+                'id' => $order->id,
+                'status' => $order->status,
+                'orderItems' => $order->orderItems->map(function ($item) {
+                    return [
+                        'foods' => ['name' => $item->foods->name],
+                    ];
+                }),
+            ];
+            broadcast(new OrderStatusEvent($data));
 
-            $this->store("Order ID {$orderId} has been confirmed ✅", $chat_id, null);
+            $this->store("Order ID {$orderId} has been taken ✅", $chat_id, null);
         } elseif (str_starts_with($callbackData, 'unconfirmorder_')) {
-            $orderId = str_replace('unconfirm_order_', '', $callbackData);
+            $orderId = str_replace('unconfirmorder_', '', $callbackData);
             Order::where('id', $orderId)->update(['status' => 2]);
+            $order = Order::where('id', $orderId)->first();
+            $data = [
+                'id' => $order->id,
+                'status' => $order->status,
+                'orderItems' => $order->orderItems->map(function ($item) {
+                    return [
+                        'foods' => ['name' => $item->foods->name],
+                    ];
+                }),
+            ];
+            Log::info('Data from controller', $data);
+            broadcast(new OrderStatusEvent($data));
 
-            $this->store("Order ID {$orderId} has been unconfirmed ❌", $chat_id, null);
+
+            $this->store("Order ID {$orderId} has been rejected ❌", $chat_id, null);
         }
 
         return response()->json(['status' => 'success'], 200);
