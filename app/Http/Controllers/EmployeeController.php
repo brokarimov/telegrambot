@@ -21,7 +21,7 @@ class EmployeeController extends Controller
         $telegramApiUrl = "https://api.telegram.org/bot{$token}/";
         $chatId = env('TELEGRAM_CHAT_ID'); 
 
-        // Validate input
+        
         $data = $request->validate([
             'employees' => 'required|array',
             'file' => 'nullable|file',
