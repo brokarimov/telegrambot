@@ -3,6 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Mail\SendVerifyCode;
+use App\Models\Food;
+use App\Models\Order;
+use App\Models\OrderItems;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -22,11 +25,10 @@ class TelegramBotController extends Controller
             'text' => $text,
         ];
 
-        if ($inlineKeyboard) {
-            $payload['reply_markup'] = json_encode(['inline_keyboard' => $inlineKeyboard]);
-        }
-        if ($statusUsersbtn) {
-            $payload['reply_markup'] = json_encode($statusUsersbtn);
+        if ($inlineKeyboard || $statusUsersbtn) {
+            $payload['reply_markup'] = json_encode([
+                'inline_keyboard' => $inlineKeyboard ?? $statusUsersbtn
+            ]);
         }
 
         $messageResponse = Http::post($telegramApiUrl, $payload);
@@ -38,19 +40,15 @@ class TelegramBotController extends Controller
         return $messageResponse->json();
     }
 
-
     public function sendMessage(Request $request)
     {
         try {
             $data = $request->all();
             Log::info('Telegram Webhook Received: ', $data);
 
-            // Handle callback query to confirm or unconfirm users
             if (isset($data['callback_query'])) {
                 return $this->handleCallbackQuery($data['callback_query']);
             }
-
-
 
             if (isset($data['message']['chat']['id'])) {
                 $chat_id = $data['message']['chat']['id'];
@@ -70,7 +68,6 @@ class TelegramBotController extends Controller
                 return $this->handleRegistrationSteps($chat_id, $text, $photo);
             }
 
-
             Log::warning('Invalid Telegram Webhook Payload: ', $data);
             return response()->json(['error' => 'Invalid payload'], 400);
         } catch (\Exception $e) {
@@ -88,23 +85,19 @@ class TelegramBotController extends Controller
                 $text = "Name: {$user->name}\n";
                 $text .= "Email: {$user->email}\n";
                 $text .= "Role: {$user->role}\n\n";
-                if ($status == 1) {
-                    $inlineKeyboard = [
-                        [
-                            ['text' => 'Unconfirm ❌', 'callback_data' => "unconfirm_{$user->id}"],
-                        ],
-                    ];
-                }elseif($status == 2){
-                    $inlineKeyboard = [
-                        [
-                            ['text' => 'Confirm ✅', 'callback_data' => "confirm_{$user->id}"],
-                        ],
-                    ];
-                }
+                $inlineKeyboard = ($status == 1) ? [
+                    [
+                        ['text' => 'Unconfirm ❌', 'callback_data' => "unconfirm_{$user->id}"],
+                    ],
+                ] : [
+                    [
+                        ['text' => 'Confirm ✅', 'callback_data' => "confirm_{$user->id}"],
+                    ],
+                ];
                 $this->store($text, $chat_id, $inlineKeyboard);
             }
         } else {
-            $this->store('There is not users in this status!', $chat_id);
+            $this->store('There is no users in this status!', $chat_id);
         }
     }
 
@@ -123,11 +116,17 @@ class TelegramBotController extends Controller
             User::where('id', $userId)->update(['status' => 2]);
 
             $this->store("User ID {$userId} has been unconfirmed ❌", $chat_id, null);
+        } elseif (str_starts_with($callbackData, 'confirmorder_')) {
+            $orderId = str_replace('confirmorder_', '', $callbackData);
+            Order::where('id', $orderId)->update(['status' => 1]);
+
+            $this->store("Order ID {$orderId} has been confirmed ✅", $chat_id, null);
+        } elseif (str_starts_with($callbackData, 'unconfirmorder_')) {
+            $orderId = str_replace('unconfirm_order_', '', $callbackData);
+            Order::where('id', $orderId)->update(['status' => 2]);
+
+            $this->store("Order ID {$orderId} has been unconfirmed ❌", $chat_id, null);
         }
-
-
-
-
 
         return response()->json(['status' => 'success'], 200);
     }
@@ -157,7 +156,6 @@ class TelegramBotController extends Controller
         }
     }
 
-
     private function handleStartCommand(int $chat_id)
     {
         $existingUser = User::where('chat_id', $chat_id)->first();
@@ -184,7 +182,7 @@ class TelegramBotController extends Controller
                 ];
 
                 $this->sendUnconfirmedUsers($chat_id);
-                $this->store('You can manage users below:', $chat_id, $inlineKeyboard, $statusUsersbtn);
+                $this->store('You can manage users below:', $chat_id, null, $statusUsersbtn);
             }
         } else {
             Cache::put("user_step_{$chat_id}", 'name');
@@ -193,7 +191,6 @@ class TelegramBotController extends Controller
 
         return response()->json(['status' => 'success'], 200);
     }
-
 
     private function handleRegistrationSteps(int $chat_id, ?string $text, ?array $photo)
     {
@@ -262,7 +259,6 @@ class TelegramBotController extends Controller
                         $this->store('Something went wrong while saving your data. Please try again.', $chat_id);
                     }
 
-
                     Cache::forget("user_name_{$chat_id}");
                     Cache::forget("user_email_{$chat_id}");
                     Cache::forget("user_password_{$chat_id}");
@@ -281,5 +277,72 @@ class TelegramBotController extends Controller
         }
 
         return response()->json(['status' => 'success'], 200);
+    }
+
+    public function createOrder(Request $request)
+    {
+        $user = User::where('id', $request->user_id)->first();
+        $token = env('TELEGRAM_BOT_TOKEN');
+        $telegramApiUrl = "https://api.telegram.org/bot{$token}/";
+        $chatId = $user->chat_id;
+
+        $data = $request->validate([
+            'user_id' => 'required|exists:users,id',
+            'food' => 'required|array',
+            'longtitude' => 'required',
+            'latitude' => 'required',
+            'time' => 'required',
+        ]);
+
+        $order = Order::create($data);
+
+        $foods = $request->food;
+
+        if (empty($foods)) {
+            return back()->with('error', 'Food list cannot be empty');
+        }
+
+        foreach ($foods as $foodId) {
+            OrderItems::create([
+                'order_id' => $order->id,
+                'food_id' => $foodId
+            ]);
+        }
+
+
+        $foodNames = Food::whereIn('id', $foods)->pluck('name')->toArray();
+
+
+        $message = "<b>Order №{$order->id}:</b>\n\n";
+        $message .= "Delivery Time: {$request->time}\n\n";
+        $message .= "<b>Ordered Foods:</b>\n";
+
+        foreach ($foodNames as $foodName) {
+            $message .= "- {$foodName}\n";
+        }
+
+        $send = Http::post($telegramApiUrl . 'sendMessage', [
+            'parse_mode' => 'HTML',
+            'chat_id' => $chatId,
+            'text' => $message,
+            'reply_markup' => json_encode([
+                'inline_keyboard' => [
+                    [
+                        ['text' => 'Take ✅', 'callback_data' => "confirmorder_{$order->id}"],
+                        ['text' => 'Reject ❌', 'callback_data' => "unconfirmorder_{$order->id}"]
+                    ]
+                ]
+            ])
+        ]);
+
+        if ($request->longtitude && $request->latitude) {
+            $sendLocationResponse = Http::post($telegramApiUrl . 'sendLocation', [
+                'chat_id' => $chatId,
+                'latitude' => $request->latitude,
+                'longitude' => $request->longtitude,
+            ]);
+        }
+
+        return back()->with('success', 'Order details and food list sent successfully!');
     }
 }

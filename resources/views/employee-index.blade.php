@@ -12,24 +12,41 @@
     <div class="container">
         <div class="row">
             <div class="col-12">
+                <ul>
+                    <li><a href="/">Order</a></li>
+                    <li><a href="/food">Food</a></li>
+                </ul>
                 <h1>Employees</h1>
                 <form action="/employee" method="POST" enctype="multipart/form-data">
                     @csrf
-                    <div class="form-check">
+                    <select name="user_id" class="form-control">
+                        <option value="">Select delieverer</option>
                         @foreach ($models as $model)
+                            <option value="{{$model->id}}">{{$model->name}}</option>
+                        @endforeach
+                    </select>
+
+                    <h1>Foods</h1>
+                    <div class="form-check">
+                        @foreach ($foods as $food)
                         <div class="mb-2">
                             <input class="form-check-input"
                                 type="checkbox"
-                                value="{{$model->id}}"
-                                id="flexCheck{{$model->id}}"
-                                name="employees[]">
-                            <label class="form-check-label" for="flexCheck{{$model->id}}">
-                                {{$model->name}}
+                                value="{{$food->id}}"
+                                id="flexCheck{{$food->id}}"
+                                name="food[]">
+                            <label class="form-check-label" for="flexCheck{{$food->id}}">
+                                {{$food->name}}
                             </label>
                         </div>
                         @endforeach
                     </div>
-                    <input type="file" name="file" class="form-control">
+
+                    <h1>Location</h1>
+                    <input type="text" name="latitude" class="form-control mt-2" placeholder="Latitude">
+                    <input type="text" name="longtitude" class="form-control" placeholder="Longtitude">
+                    <h1>Time</h1>
+                    <input type="time" name="time" class="form-control">
                     <button type="submit" class="btn btn-primary mt-3">Submit</button>
                 </form>
 

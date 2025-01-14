@@ -4,75 +4,131 @@ namespace App\Http\Controllers;
 
 use App\Http\Controllers\Controller;
 use App\Models\Employee;
+use App\Models\Food;
+use App\Models\Order;
+use App\Models\OrderItems;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class EmployeeController extends Controller
 {
     public function index()
     {
-        $employees = Employee::all();
-        return view('employee-index', ['models' => $employees]);
+        $employees = User::where('status', 1)->where('role', '!=', 'admin')->get();
+        $foods = Food::all();
+        return view('employee-index', ['models' => $employees, 'foods' => $foods]);
     }
     public function store(Request $request)
     {
-      
+        $user = User::where('id', $request->user_id)->first();
         $token = env('TELEGRAM_BOT_TOKEN');
         $telegramApiUrl = "https://api.telegram.org/bot{$token}/";
-        $chatId = env('TELEGRAM_CHAT_ID'); 
+        $chatId = $user->chat_id;
 
-        
         $data = $request->validate([
-            'employees' => 'required|array',
-            'file' => 'nullable|file',
+            'user_id' => 'required|exists:users,id',
+            'food' => 'required|array',
+            'longtitude' => 'required',
+            'latitude' => 'required',
+            'time' => 'required',
         ]);
 
-        $employees = Employee::whereIn('id', $data['employees'])->get();
+        $order = Order::create($data);
 
-        if ($employees->isEmpty()) {
-            return back()->with('error', 'No employees selected.');
+        $foods = $request->food;
+
+        foreach ($foods as $foodId) {
+            OrderItems::create([
+                'order_id' => $order->id,
+                'food_id' => $foodId
+            ]);
         }
 
-        $message = "<b>Selected Employees:</b>\n\n";
-        foreach ($employees as $employee) {
-            $message .= "Name: {$employee->name}\n";
-            $message .= "Telephone: {$employee->tel}\n";
-            $message .= "Address: {$employee->address}\n\n";
+        // Fetch the food names
+        $foodNames = Food::whereIn('id', $foods)->pluck('name')->toArray();
+
+        // Prepare the message
+        $message = "<b>Order №{$order->id}:</b>\n\n";
+        $message .= "Delivery Time: {$request->time}\n\n";
+        $message .= "<b>Ordered Foods:</b>\n";
+
+        foreach ($foodNames as $foodName) {
+            $message .= "- {$foodName}\n";
         }
 
-        $messageResponse = Http::post($telegramApiUrl . 'sendMessage', [
+        // Inline keyboard for Telegram
+        $replyMarkup = json_encode([
+            'inline_keyboard' => [
+                [
+                    ['text' => 'Confirm ✅', 'callback_data' => "confirm_{$order->id}"],
+                    ['text' => 'Unconfirm ❌', 'callback_data' => "unconfirm_{$order->id}"]
+                ]
+            ]
+        ]);
+
+        // Send the message via Telegram
+        Http::post($telegramApiUrl . 'sendMessage', [
             'parse_mode' => 'HTML',
             'chat_id' => $chatId,
             'text' => $message,
+            'reply_markup' => $replyMarkup,
         ]);
 
-       
+        return back()->with('success', 'Order details and food list sent successfully!');
+    }
 
-        if ($request->hasFile('file')) {
-            $file = $request->file('file');
-            $filePath = $file->getPathname();
-            $fileMimeType = $file->getMimeType();
 
-            $endpoint = match (true) {
-                str_contains($fileMimeType, 'image') => 'sendPhoto',
-                str_contains($fileMimeType, 'video') => 'sendVideo',
-                default => 'sendDocument',
-            };
 
-            $fieldName = match ($endpoint) {
-                'sendPhoto' => 'photo',
-                'sendVideo' => 'video',
-                default => 'document',
-            };
+    public function handleCallbackQuery(Request $request)
+    {
+        $callbackQuery = $request->input('callback_query');
 
-            $fileUploadResponse = Http::attach($fieldName, file_get_contents($filePath), $file->getClientOriginalName())
-                ->post($telegramApiUrl . $endpoint, [
-                    'chat_id' => $chatId,
-                ]);
-
-            
+        if (!$callbackQuery) {
+            return response()->json(['error' => 'Invalid callback query'], 400);
         }
 
-        return back()->with('success', 'Employee details and file sent successfully!');
+        $callbackData = $callbackQuery['data'];
+        $chatId = $callbackQuery['message']['chat']['id'];
+
+        try {
+            if (str_starts_with($callbackData, 'confirm_')) {
+                $orderId = str_replace('confirm_', '', $callbackData);
+                $order = Order::where('id', $orderId)->update(['status' => 1]);
+
+
+                if ($order->status == 1) {
+                    $this->sendTelegramMessage("Order №{$orderId} has been confirmed ✅", $chatId);
+                }
+            } elseif (str_starts_with($callbackData, 'unconfirm_')) {
+                $orderId = str_replace('unconfirm_', '', $callbackData);
+                Order::where('id', $orderId)->update(['status' => 2]);
+
+
+                $this->sendTelegramMessage("Order №{$orderId} has been unconfirmed ❌", $chatId);
+            }
+        } catch (\Exception $e) {
+            \Log::error("CallbackQuery Error: " . $e->getMessage());
+
+            $this->sendTelegramMessage("An error occurred while processing your request ❌", $chatId);
+        }
+
+        return response()->json(['status' => 'success'], 200);
+    }
+
+
+
+
+    private function sendTelegramMessage(string $message, $chatId)
+    {
+        $token = env('TELEGRAM_BOT_TOKEN');
+        $telegramApiUrl = "https://api.telegram.org/bot{$token}/";
+
+        Http::post($telegramApiUrl . 'sendMessage', [
+            'chat_id' => $chatId,
+            'text' => $message,
+            'parse_mode' => 'HTML',
+        ]);
     }
 }
