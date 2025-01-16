@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 
 class TelegramBotController extends Controller
 {
@@ -26,7 +27,7 @@ class TelegramBotController extends Controller
                 'inline_keyboard' => $inlineKeyboard ?? $statusUsersbtn
             ]);
         }
-        
+
 
         $messageResponse = Http::post($telegramApiUrl, $payload);
 
@@ -37,7 +38,7 @@ class TelegramBotController extends Controller
         return $messageResponse->json();
     }
 
-    public function sendMessage(Request $request)
+    public function getMessage(Request $request)
     {
         try {
             $data = $request->all();
@@ -70,6 +71,39 @@ class TelegramBotController extends Controller
         }
     }
 
+    // public function sendMessage(Request $request)
+    // {
+    //     try {
+    //         $data = $request->all();
+    //         Log::info('Received data: ', $data);
+
+    //         if (isset($data['callback_query'])) {
+    //             Log::info('Callback query received: ', ['callback_data' => $data['callback_query']['data']]);
+    //             return $this->handleCallbackQuery($data['callback_query']);
+    //         }
+
+    //         if (isset($data['message']['chat']['id'])) {
+    //             $chat_id = $data['message']['chat']['id'];
+    //             $text = $data['message']['text'] ?? null;
+
+    //             if ($text === '/start') {
+    //                 return $this->handleStartCommand($chat_id);
+    //             }
+
+    //             $step = Cache::get("registration_step_{$chat_id}");
+    //             if ($step) {
+    //                 return $this->handleRegistrationSteps($chat_id, $text, $data['message']);
+    //             }
+    //         }
+
+    //         Log::warning('Invalid Telegram Webhook Payload: ', $data);
+    //         return response()->json(['error' => 'Invalid payload'], 400);
+    //     } catch (\Exception $e) {
+    //         Log::error('Telegram Webhook Error: ' . $e->getMessage());
+    //         return response()->json(['error' => $e->getMessage()], 500);
+    //     }
+    // }
+
     private function handleStartCommand(int $chat_id)
     {
         $existingUser = User::where('chat_id', $chat_id)->first();
@@ -82,8 +116,8 @@ class TelegramBotController extends Controller
                 $statusUsersbtn = [
                     'keyboard' => [
                         [
-                            ['text' => 'Confirmed users', 'callback_data' => "confirmed_users"],
-                            ['text' => 'Unconfirmed users', 'callback_data' => "unconfirmed_users"],
+                            ['text' => 'Confirmed users'],
+                            ['text' => 'Unconfirmed users'],
                         ]
                     ],
                     'resize_keyboard' => true
@@ -316,67 +350,59 @@ class TelegramBotController extends Controller
                 break;
 
             case 'logo':
-                $photo = $update['photo'] ?? null;
-                Log::info('Photo : ', ['photo' => $update['photo']]);
+                if (empty($update['photo'])) {
+                    $this->store('No photo detected. Please upload your company logo.', $chat_id);
+                    return;
+                }
 
-                if ($photo) {
-                    $file_id = end($photo)['file_id'];
-                    $file = $this->getFile($file_id);
+                $photo = end($update['photo']);
+                $fileId = $photo['file_id'];
+                $token = env('TELEGRAM_BOT_TOKEN');
+                $response = Http::get("https://api.telegram.org/bot{$token}/getFile?file_id={$fileId}");
 
-                    if (isset($file['file_path'])) {
-                        $file_url = "https://api.telegram.org/file/bot" . env('TELEGRAM_BOT_TOKEN') . "/" . $file['file_path'];
-                        Cache::put("company_logo_{$chat_id}", $file_url);
+                if (!$response->ok()) {
+                    $this->store('Failed to retrieve the file. Please try again later.', $chat_id);
+                    Log::error('Telegram API error: ', ['response' => $response->body()]);
+                    return;
+                }
 
-                        Cache::put("registration_step_{$chat_id}", 'completed');
-                        $this->store('Company registration complete! Welcome!', $chat_id);
+                $filePath = $response->json()['result']['file_path'];
+                $fileUrl = "https://api.telegram.org/file/bot{$token}/{$filePath}";
+                $fileContents = Http::get($fileUrl)->body();
 
-                        Company::create([
-                            'name' => Cache::get("company_name_{$chat_id}"),
-                            'email' => Cache::get("company_email_{$chat_id}"),
-                            'chat_id' => $chat_id,
-                            'logo' => $file_url,
-                            'longitude' => '',
-                            'latitude' => '',
-                        ]);
+                if (!$fileContents) {
+                    $this->store('Failed to download the file. Please try again later.', $chat_id);
+                    Log::error('File download error: ', ['fileUrl' => $fileUrl]);
+                    return;
+                }
 
-                        Cache::forget("registration_step_{$chat_id}");
-                        Cache::forget("registration_type_{$chat_id}");
-                    } else {
-                        $this->store('Could not retrieve the logo image. Please try uploading again.', $chat_id);
-                    }
+                $fileName = 'telegram_photos/' . basename($filePath);
+                Storage::put($fileName, $fileContents);
+
+                        
+                $companyName = Cache::get("company_name_{$chat_id}");
+                $companyEmail = Cache::get("company_email_{$chat_id}");
+
+
+                $company = Company::create([
+                    'name' => $companyName,
+                    'chat_id' => $chat_id,
+                    'email' => $companyEmail,
+                    'logo' => $fileName,
+                ]);
+
+                if ($company) {
+                    $this->store('Company registered successfully!', $chat_id);
+                    Log::info('Company created: ', ['company' => $company->toArray()]);
                 } else {
-                    $logo_url = $text ?? null;
-                    if ($logo_url && filter_var($logo_url, FILTER_VALIDATE_URL)) {
-                        Cache::put("company_logo_{$chat_id}", $logo_url);
-
-                        Cache::put("registration_step_{$chat_id}", 'completed');
-                        $this->store('Company registration complete! Welcome!', $chat_id);
-
-                        Company::create([
-                            'name' => Cache::get("company_name_{$chat_id}"),
-                            'email' => Cache::get("company_email_{$chat_id}"),
-                            'chat_id' => $chat_id,
-                            'logo' => $logo_url,
-                            'longitude' => '',
-                            'latitude' => '',
-                        ]);
-
-                        Cache::forget("registration_step_{$chat_id}");
-                        Cache::forget("registration_type_{$chat_id}");
-                    } else {
-                        $this->store('Invalid logo URL. Please provide a valid URL or upload the logo.', $chat_id);
-                    }
+                    $this->store('Failed to register the company. Please try again later.', $chat_id);
+                    Log::error('Company creation failed: ', [
+                        'name' => $companyName,
+                        'email' => $companyEmail,
+                        'logo_path' => $fileName,
+                    ]);
                 }
                 break;
         }
-    }
-
-    private function getFile(string $file_id)
-    {
-        $fileResponse = Http::get("https://api.telegram.org/bot" . env('TELEGRAM_BOT_TOKEN') . "/getFile", [
-            'file_id' => $file_id,
-        ]);
-
-        return $fileResponse->json();
     }
 }
