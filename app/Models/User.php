@@ -24,6 +24,7 @@ class User extends Authenticatable
         'chat_id',
         'image',
         'status',
+        'company_id',
     ];
 
     /**
@@ -47,5 +48,10 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
         ];
+    }
+
+    public function companies()
+    {
+        return $this->belongsTo(Company::class, 'company_id');
     }
 }
