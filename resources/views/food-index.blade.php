@@ -15,8 +15,7 @@
                 <ul>
                     <li><a href="/">Order</a></li>
                     <li><a href="/food">Food</a></li>
-                    <li><a href="/orders">Orders</a></li>
-
+ 
                 </ul>
                 <h1>Foods</h1>
                 <form action="/food" method="POST" enctype="multipart/form-data">

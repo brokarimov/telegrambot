@@ -15,18 +15,25 @@
                 <ul>
                     <li><a href="/">Order</a></li>
                     <li><a href="/food">Food</a></li>
-                    <li><a href="/orders">Orders</a></li>
-
                 </ul>
-                <h1>Employees</h1>
+
                 <form action="/employee" method="POST" enctype="multipart/form-data">
                     @csrf
-                    <select name="user_id" class="form-control">
-                        <option value="">Select delieverer</option>
+                    <h1>Companies</h1>
+                    <div class="form-check">
                         @foreach ($models as $model)
-                            <option value="{{$model->id}}">{{$model->name}}</option>
+                        <div class="mb-2">
+                            <input class="form-check-input"
+                                type="checkbox"
+                                value="{{$model->id}}"
+                                id="flexCheck{{$model->id}}"
+                                name="company[]">
+                            <label class="form-check-label" for="flexCheck{{$model->id}}">
+                                {{$model->name}}
+                            </label>
+                        </div>
                         @endforeach
-                    </select>
+                    </div>
 
                     <h1>Foods</h1>
                     <div class="form-check">
@@ -43,12 +50,6 @@
                         </div>
                         @endforeach
                     </div>
-
-                    <h1>Location</h1>
-                    <input type="text" name="latitude" class="form-control mt-2" placeholder="Latitude">
-                    <input type="text" name="longtitude" class="form-control" placeholder="Longtitude">
-                    <h1>Time</h1>
-                    <input type="time" name="time" class="form-control">
                     <button type="submit" class="btn btn-primary mt-3">Submit</button>
                 </form>
 

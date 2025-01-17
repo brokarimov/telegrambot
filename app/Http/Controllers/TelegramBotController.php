@@ -2,7 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Cart;
+use App\Models\CartItem;
 use App\Models\Company;
+use App\Models\Food;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -264,6 +267,50 @@ class TelegramBotController extends Controller
             $companyID = str_replace('unconfirmcompany_', '', $callbackData);
             Company::where('id', $companyID)->update(['status' => 2]);
             $this->store("Company ID {$companyID} has been unconfirmed ❌", $chat_id, null);
+        } elseif (str_starts_with($callbackData, 'food_')) {
+
+            $foodID = str_replace('food_', '', $callbackData);
+            $food = Food::where('id', $foodID)->first();
+            $user = User::where('chat_id', $chat_id)->first();
+            $existingCart = Cart::where('user_id', $user->id)->first();
+            if ($existingCart) {
+                CartItem::create(
+                    [
+                        'cart_id' => $existingCart->id,
+                        'food_id' => $food->id,
+                    ]
+                );
+            } else {
+                $cart = Cart::create([
+                    'user_id' => $user->id
+                ]);
+                CartItem::create(
+                    [
+                        'cart_id' => $cart->id,
+                        'food_id' => $food->id,
+                    ]
+                );
+            }
+            $this->store("You selected {$food->name}!", $chat_id, null);
+        } elseif (str_starts_with($callbackData, 'cart')) {
+            $user = User::where('chat_id', $chat_id)->first();
+            $cart = Cart::where('user_id', $user->id)->first();
+            $foods = CartItem::where('cart_id', $cart->id)->get();
+            $text = "Your selected Foods:\n\n";
+            foreach ($foods as $food) {
+                $text .= " - {$food->food->name}\n";
+            }
+            $inlineKeyboard = [
+                [
+                    ['text' => 'Confirm ✅', 'callback_data' => "order_{$cart->id}"],
+                    ['text' => 'Unconfirm ❌', 'callback_data' => "reject_{$cart->id}"],
+                ],
+            ];
+            $this->store($text, $chat_id, $inlineKeyboard);
+        } elseif (str_starts_with($callbackData, 'reject_')) {
+            $cartID = str_replace('reject_', '', $callbackData);
+            Cart::where('id', $cartID)->delete();
+            $this->store("Cart ID {$cartID} has been unconfirmed ❌", $chat_id, null);
         } else {
             $this->store('Invalid selection. Please choose a company or skip.', $chat_id);
         }
@@ -379,7 +426,7 @@ class TelegramBotController extends Controller
                 $fileName = 'telegram_photos/' . basename($filePath);
                 Storage::put($fileName, $fileContents);
 
-                        
+
                 $companyName = Cache::get("company_name_{$chat_id}");
                 $companyEmail = Cache::get("company_email_{$chat_id}");
 

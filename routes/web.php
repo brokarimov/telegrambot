@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Route;
 // });
 
 Route::get('/', [EmployeeController::class, 'index']);
-Route::post('/employee', [TelegramBotController::class, 'createOrder']);
+Route::post('/employee', [EmployeeController::class, 'store']);
 
 Route::get('/food', [FoodController::class, 'index']);
 Route::post('/food', [FoodController::class, 'store']);
