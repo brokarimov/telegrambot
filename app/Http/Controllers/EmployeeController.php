@@ -33,7 +33,7 @@ class EmployeeController extends Controller
         
         $text = "Today's menu:\n\n";
         foreach ($foods as $food) {
-            $text .= " - {$food->name}\n";
+            $text .= " - {$food->name} - {$food->price}$\n";
         }
 
         

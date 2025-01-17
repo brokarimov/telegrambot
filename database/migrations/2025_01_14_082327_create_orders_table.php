@@ -14,10 +14,8 @@ return new class extends Migration
         Schema::create('orders', function (Blueprint $table) {
             $table->id();
             $table->foreignId('user_id')->constrained('users')->onDelete('cascade');
-            $table->string('longtitude');
-            $table->string('latitude');
-            $table->time('time');
-            $table->string('status')->default('0');
+            $table->date('date');
+            $table->string('sum');
             $table->timestamps();
         });
     }

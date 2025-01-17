@@ -6,6 +6,9 @@ use App\Models\Cart;
 use App\Models\CartItem;
 use App\Models\Company;
 use App\Models\Food;
+use App\Models\Order;
+use App\Models\OrderItem;
+use App\Models\OrderItems;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -274,12 +277,19 @@ class TelegramBotController extends Controller
             $user = User::where('chat_id', $chat_id)->first();
             $existingCart = Cart::where('user_id', $user->id)->first();
             if ($existingCart) {
-                CartItem::create(
-                    [
-                        'cart_id' => $existingCart->id,
-                        'food_id' => $food->id,
-                    ]
-                );
+                $existingFood = CartItem::where('food_id', $food->id)->first();
+                if ($existingFood) {
+                    $existingFood->count += 1;
+                    $existingFood->save();
+                } else {
+                    CartItem::create(
+                        [
+                            'cart_id' => $existingCart->id,
+                            'food_id' => $food->id,
+                            'count' => 1,
+                        ]
+                    );
+                }
             } else {
                 $cart = Cart::create([
                     'user_id' => $user->id
@@ -288,6 +298,7 @@ class TelegramBotController extends Controller
                     [
                         'cart_id' => $cart->id,
                         'food_id' => $food->id,
+                        'count' => 1,
                     ]
                 );
             }
@@ -298,7 +309,7 @@ class TelegramBotController extends Controller
             $foods = CartItem::where('cart_id', $cart->id)->get();
             $text = "Your selected Foods:\n\n";
             foreach ($foods as $food) {
-                $text .= " - {$food->food->name}\n";
+                $text .= " - {$food->food->name} - Count: {$food->count} - Price: $" . ($food->food->price * $food->count) . "\n";
             }
             $inlineKeyboard = [
                 [
@@ -308,9 +319,46 @@ class TelegramBotController extends Controller
             ];
             $this->store($text, $chat_id, $inlineKeyboard);
         } elseif (str_starts_with($callbackData, 'reject_')) {
+
             $cartID = str_replace('reject_', '', $callbackData);
             Cart::where('id', $cartID)->delete();
             $this->store("Cart ID {$cartID} has been unconfirmed ❌", $chat_id, null);
+            
+        } elseif (str_starts_with($callbackData, 'order_')) {
+
+            $user = User::where('chat_id', $chat_id)->first();
+            $cartID = str_replace('order_', '', $callbackData);
+            $cart = Cart::where('id', $cartID)->first();
+            $cartItems = CartItem::where('cart_id', $cart->id)->get();
+
+            $sum = 0;
+            foreach($cartItems as $item){
+                $food = Food::where('id', $item->food_id)->first();
+                $sum += $food->price * $item->count;
+            } 
+            Log::info('Sum', [$sum]);
+            $order = Order::create([
+                'user_id' => $user->id,
+                'date' => now(),
+                'sum' => $sum,
+            ]);
+
+            foreach($cartItems as $item){
+                OrderItems::create([
+                    'order_id' => $order->id,
+                    'food_id' => $item->food_id,
+                    'count' => $item->count,
+                ]);
+            }
+            $orderItems = OrderItems::where('order_id', $order->id)->get();
+            $text = "Order has been completed ✅:\n\n";
+            foreach ($orderItems as $item) {
+                $food = Food::where('id', $item->food_id)->first();
+                $text .= " - {$food->name} - Count: {$item->count} - Price: $" . ($food->price * $item->count) . "\n";
+            }
+            $text .= "\nTotal: {$order->sum}";
+            $this->store($text, $chat_id, null);
+            $cart->delete();
         } else {
             $this->store('Invalid selection. Please choose a company or skip.', $chat_id);
         }

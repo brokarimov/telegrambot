@@ -45,7 +45,7 @@
                                 id="flexCheck{{$food->id}}"
                                 name="food[]">
                             <label class="form-check-label" for="flexCheck{{$food->id}}">
-                                {{$food->name}}
+                                {{$food->name}} - ${{$food->price}}
                             </label>
                         </div>
                         @endforeach

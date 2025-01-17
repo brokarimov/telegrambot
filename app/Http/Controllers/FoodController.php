@@ -17,6 +17,7 @@ class FoodController extends Controller
     {
         $data = $request->validate([
             'name' => 'required|max:255',
+            'price' => 'required|max:255'
         ]);
 
         $food = Food::create($data);

@@ -9,7 +9,7 @@ class OrderItems extends Model
     protected $fillable = [
         'food_id',
         'order_id',
-
+        'count',
     ];
 
     public function foods()

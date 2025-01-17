@@ -8,10 +8,8 @@ class Order extends Model
 {
     protected $fillable = [
         'user_id',
-        'longtitude',
-        'latitude',
-        'time',
-        'status',
+        'date',
+        'sum',
     ];
 
     public function orderItems()

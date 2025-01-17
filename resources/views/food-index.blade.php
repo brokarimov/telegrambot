@@ -22,10 +22,11 @@
                     @csrf
                     <div class="form-check">
                         @foreach ($models as $model)
-                        <li>{{$model->name}}</li>
+                        <li>{{$model->name}} - ${{$model->price}}</li>
                         @endforeach
                     </div>
                     <input type="text" name="name" class="form-control">
+                    <input type="text" name="price" class="form-control mt-2">
                     <button type="submit" class="btn btn-primary mt-3">Submit</button>
                 </form>
 
